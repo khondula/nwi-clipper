@@ -1,0 +1,83 @@
+---
+title: "nwi-area"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(glue)
+library(tidyverse)
+library(sf)
+library(scico)
+huc8_df <- read_csv('neon-huc8s.csv')
+
+```
+
+```{r}
+puum_fbox <- st_read("H:/DATA/spatial/aop_boxes/D20_PUUM_C1_P1_v2.kml")
+fboxes_dir <- 'H:/DATA/spatial/aop_boxes'
+my_fboxes <- st_read(glue('{fboxes_dir}/fboxes_nodups.shp')) %>%
+  bind_rows(puum_fbox)
+
+```
+
+
+```{r}
+my_site <- 'ABBY'
+
+save_nwi_area <- function(my_site){
+my_huc8s <- dplyr::filter(huc8_df, neon_siteID %in% my_site) %>% pull(huc8)
+
+my_nwi_paths <- glue('{nwi_dir}/HU8_{my_huc8s}_Watershed') %>%
+  purrr::map_chr(~fs::dir_ls(.x, glob = '*Wetlands.shp'))
+
+my_nwi_shed_paths <- glue('{nwi_dir}/HU8_{my_huc8s}_Watershed') %>%
+  purrr::map_chr(~fs::dir_ls(.x, glob = '*Watershed.shp'))
+
+my_sheds_sf <- my_nwi_shed_paths %>% purrr::map(~st_read(.x)) %>% bind_rows()
+my_nwi_sf <- my_nwi_paths %>% purrr::map(~st_read(.x)) %>% bind_rows()
+
+my_fboxes_prj <- my_fboxes %>% st_zm() %>% st_transform(st_crs(my_nwi_sf))
+my_site_sf <- dplyr::filter(my_fboxes_prj, siteID == my_site) %>%
+    st_union() %>% st_as_sf()
+
+my_sheds_nwi <- st_intersection(my_site_sf, my_sheds_sf)
+my_site_nwi <- st_intersection(my_site_sf, my_nwi_sf)
+
+ggplot() +
+  geom_sf(data = my_sheds_nwi, col = 'red', alpha = 0.1) +
+  geom_sf(data = my_site_nwi, aes(fill = WETLAND_TY, col = WETLAND_TY)) +
+  scico::scale_color_scico_d(palette = 'bamako', direction = -1) +
+  scale_fill_scico_d(palette = 'bamako', direction = -1) +
+  geom_sf(data = my_site_sf, fill = NA) +
+  theme_void() +
+  ggtitle(glue('NWI for {my_site}'))
+
+ggsave(glue('figs/{my_site}-nwi.png'))
+
+
+nwi_areas_m2 <- my_site_nwi %>% st_area()
+nwi_area_unit <- units::deparse_unit(nwi_areas_m2)
+
+site_nwi_df <- my_site_nwi %>%
+  st_drop_geometry() %>%
+  mutate(area_clip = as.numeric(nwi_areas_m2)) %>%
+  group_by(WETLAND_TY) %>%
+  summarise(area_m2 = sum(area_clip)) %>%
+  mutate(area_km2 = area_m2/1e6) %>%
+  mutate(check_m2 = nwi_area_unit) %>%
+  mutate(neon_siteID = my_site)
+
+site_nwi_df %>% write_csv(glue('results/{my_site}-nwi-area.csv'))  
+}
+
+
+```
+

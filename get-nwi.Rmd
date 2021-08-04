@@ -15,19 +15,30 @@ library(tidyverse)
 ```
 
 ```{r}
-nwi_dir <- '/Volumes/hondula/DATA/NWI'
-nwi_url <- glue('https://www.fws.gov/wetlands/downloads/Watershed/HU8_{huc8_id}_watershed.zip')
-
-huc8_id <- '03080102'
-
-download.file(nwi_url, basename(nwi_url))
-unzip(basename(nwi_url), exdir = nwi_dir)
-```
-
-```{r}
 neon_huc8s <- fs::dir_ls('../nhd-clipper/results', grob = '*-HUC8.csv', type = 'file') %>%
   purrr::map_df(~read_csv(.x, col_types = 'ccllllDlddcccddcc')) %>%
   dplyr::select(neon_siteID, huc2, huc8, states, name)
 neon_huc8s %>% write_csv('neon-huc8s.csv')
 ```
+
+```{r}
+huc8_df <- read_csv('neon-huc8s.csv')
+neon_huc8s <- huc8_df$huc8 %>% unique()
+```
+
+```{r}
+nwi_dir <- '/Volumes/hondula/DATA/NWI'
+nwi_dir <- 'H:/DATA/NWI'
+
+huc8_id <- neon_huc8s[1]
+
+get_nwi_huc8 <- function(huc8_id){
+  nwi_url <- glue('https://www.fws.gov/wetlands/downloads/Watershed/HU8_{huc8_id}_watershed.zip')
+  download.file(nwi_url, basename(nwi_url))
+  unzip(basename(nwi_url), exdir = nwi_dir)  
+  fs::file_delete(basename(nwi_url))
+}
+neon_huc8s %>% purrr::walk(~get_nwi_huc8(.x))
+```
+
 
